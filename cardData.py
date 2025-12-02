@@ -1,126 +1,142 @@
-import mysql.connector
-import cardSet
-import pokedex
-import evolutionsSet
+import json
+import os
 import imagehash
 import numpy as np
 
-username = "########"  # Your mysql username
-password = "########"  # Your mysql password
-databasename = "pokemonDatabase"  # name of database we want to create
+
+# Checks if database needs to be regenerated
+def needsDatabaseRegeneration():
+    """
+    Check if the database JSON files need to be regenerated.
+    Returns True if:
+    - JSON files don't exist
+    - cards/ folder has different number of cards than JSON
+    - cards/ folder is newer than JSON files
+    """
+    # Check if JSON files exist
+    if not os.path.exists('evolutions_set.json') or not os.path.exists('evolutions_cards.json'):
+        return True
+    
+    # Count cards in cards/ folder
+    import cardLoader
+    loader = cardLoader.CardLoader('cards')
+    card_count = loader.get_card_count()
+    
+    if card_count == 0:
+        return False  # No cards to process
+    
+    # Check if JSON has same number of cards
+    try:
+        with open('evolutions_cards.json', 'r') as f:
+            cards_data = json.load(f)
+            if len(cards_data) != card_count:
+                return True
+    except (json.JSONDecodeError, KeyError):
+        return True
+    
+    # Check if cards/ folder is newer than JSON files
+    try:
+        json_mtime = os.path.getmtime('evolutions_cards.json')
+        cards_dir = 'cards'
+        
+        # Check all subdirectories in cards/
+        for set_dir in os.listdir(cards_dir):
+            set_path = os.path.join(cards_dir, set_dir)
+            if os.path.isdir(set_path) and not set_dir.startswith('.'):
+                # Check if any PNG file is newer than JSON
+                for file in os.listdir(set_path):
+                    if file.lower().endswith('.png'):
+                        file_path = os.path.join(set_path, file)
+                        if os.path.getmtime(file_path) > json_mtime:
+                            return True
+    except (OSError, FileNotFoundError):
+        return True
+    
+    return False
 
 
-# Creates a database of pokemon
+# Creates JSON files for card data
 def createDatabase():
-    # Connects to the localhost
-    db = mysql.connector.connect(
-        host="localhost",
-        user=username,
-        passwd=password
-    )
-
-    # Creates a cursor so that we can create and databases
-    mycursor = db.cursor()
-
-    # Check if database has already been created; if not, create it
-    mycursor.execute(
-        "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '{}'".format(databasename))
-    if mycursor.fetchone() is None:
-        mycursor.execute(f"CREATE DATABASE {databasename}")
-    else:
-        mycursor.execute(f"DROP DATABASE {databasename}")  # Incase user forgot to change first to False after having
-        # already created database
-        mycursor.execute(f"CREATE DATABASE {databasename}")
-
-    # Add tables and values to database
-    initializeDatabase()
-
-
-# Initializes database with inital values for cards and pokemon
-def initializeDatabase():
-    # Connects to the database that already existed or was created in createDatabase()
-    db = mysql.connector.connect(
-        host="localhost",
-        user=username,
-        passwd=password,
-        database=databasename
-    )
-
-    # Creates a cursor so that we can edit the database
-    mycursor = db.cursor()
-
-    # Creates a Pokedex object that holds information on the first 151 (Kanto) Pokemon and some of their mega evolutions
-    # Information includes pokedex number, pokemon names, type, stage, and height
-    poke = pokedex.Pokedex()
-
-    # Creates a CardSet object that has information on the cards in Evolutions
-    # Information includes card numbers, pokemon names, card names, card rarity, and card type
-    evoSet = cardSet.CardSet()
-
-    # Creates a EvolutionsSet object that stores the hashes for the images of the Pokemon cards
-    # Has hashes for the following orientations of the card: normal, mirrored, upside-down, upside down mirrored
-    evoCards = evolutionsSet.EvolutionsSet()
-
-    # Creates a new table Pokemon that will hold the values in the poke Pokedex object
-    mycursor.execute("CREATE TABLE Pokemon (dexNumber SMALLINT, pokemon VARCHAR(20) PRIMARY KEY, \
-            poketype VARCHAR(10), height DOUBLE UNSIGNED, stage VARCHAR(5))")
-
-    # Populates the Pokemon table
-    for x in range(poke.numpoke):
-        mycursor.execute("INSERT INTO Pokemon (dexNumber, pokemon, poketype, stage, height) VALUES(%s, %s, %s, %s, %s)",
-                         (poke.dexnumber[x], poke.pokemon[x], poke.type[x], poke.stage[x], poke.height[x]))
-
-    # Creates a new table EvolutionsSet that will hold the values in the evoSet CardSet object
-    mycursor.execute("CREATE TABLE EvolutionsSet (cardnumber TINYINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, \
-            cardname VARCHAR(50), pokemon VARCHAR(20), rarity VARCHAR(13), cardtype VARCHAR(17))")
-
-    # Populates the EvolutionsSet table
-    for x in range(evoSet.numCards):
-        mycursor.execute("INSERT INTO EvolutionsSet (cardname, pokemon, rarity, cardtype) VALUES(%s, %s, %s, %s)",
-                         (evoSet.cardnamelist[x], evoSet.pokemonlist[x], evoSet.rarity[x], evoSet.cardtype[x]))
-
-    # Creates a new table EvolutionsCards that will hold the values in the evoCards EvolutionsSet object
-    mycursor.execute("CREATE TABLE EvolutionsCards (cardnumber TINYINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, \
-            FOREIGN KEY(cardnumber) REFERENCES EvolutionsSet(cardnumber), \
-            avghashes VARCHAR(20), avghashesmir VARCHAR(20), avghashesud VARCHAR(20), avghashesudmir VARCHAR(20), \
-            whashes VARCHAR(20), whashesmir VARCHAR(20), whashesud VARCHAR(20), whashesudmir VARCHAR(20), \
-            phashes VARCHAR(20), phashesmir VARCHAR(20), phashesud VARCHAR(20), phashesudmir VARCHAR(20), \
-            dhashes VARCHAR(20), dhashesmir VARCHAR(20), dhashesud VARCHAR(20), dhashesudmir VARCHAR(20))")
-
-    # Populates the EvolutionsCards table
-    for x in range(evoCards.setSize):
-        mycursor.execute(
-            "INSERT INTO EvolutionsCards (avghashes, avghashesmir, avghashesud, avghashesudmir, \
-            whashes, whashesmir, whashesud, whashesudmir, \
-            phashes, phashesmir, phashesud, phashesudmir, \
-            dhashes, dhashesmir, dhashesud, dhashesudmir) \
-            VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (evoCards.hashes[x][0], evoCards.hashesmir[x][0], evoCards.hashesud[x][0], evoCards.hashesudmir[x][0],
-             evoCards.hashes[x][1], evoCards.hashesmir[x][1], evoCards.hashesud[x][1], evoCards.hashesudmir[x][1],
-             evoCards.hashes[x][2], evoCards.hashesmir[x][2], evoCards.hashesud[x][2], evoCards.hashesudmir[x][2],
-             evoCards.hashes[x][3], evoCards.hashesmir[x][3], evoCards.hashesud[x][3], evoCards.hashesudmir[x][3]))
-
-    # Commits changes to the database
-    db.commit()
+    print("Creating JSON data files...")
+    
+    # Use CardLoader to scan cards/ directory
+    import cardLoader
+    loader = cardLoader.CardLoader('cards')
+    
+    if loader.get_card_count() == 0:
+        print("ERROR: No cards found in 'cards/' folder!")
+        print("Please add card images to cards/set_name/ folders")
+        return
+    
+    print(f"Loaded {loader.get_card_count()} cards from card folders")
+    
+    # Create card set data
+    evolutions_set_data = []
+    evolutions_cards_data = []
+    
+    for i in range(loader.get_card_count()):
+        card_meta = loader.cards[i]
+        
+        evolutions_set_data.append({
+            'cardnumber': card_meta['global_id'],
+            'set_name': card_meta['set_name'],
+            'card_number_in_set': card_meta['card_number_in_set']
+        })
+        
+        evolutions_cards_data.append({
+            'cardnumber': card_meta['global_id'],
+            'set_name': card_meta['set_name'],
+            'card_number_in_set': card_meta['card_number_in_set'],
+            'avghashes': loader.hashes[i][0],
+            'avghashesmir': loader.hashesmir[i][0],
+            'avghashesud': loader.hashesud[i][0],
+            'avghashesudmir': loader.hashesudmir[i][0],
+            'whashes': loader.hashes[i][1],
+            'whashesmir': loader.hashesmir[i][1],
+            'whashesud': loader.hashesud[i][1],
+            'whashesudmir': loader.hashesudmir[i][1],
+            'phashes': loader.hashes[i][2],
+            'phashesmir': loader.hashesmir[i][2],
+            'phashesud': loader.hashesud[i][2],
+            'phashesudmir': loader.hashesudmir[i][2],
+            'dhashes': loader.hashes[i][3],
+            'dhashesmir': loader.hashesmir[i][3],
+            'dhashesud': loader.hashesud[i][3],
+            'dhashesudmir': loader.hashesudmir[i][3]
+        })
+    
+    # Write to JSON files
+    with open('evolutions_set.json', 'w') as f:
+        json.dump(evolutions_set_data, f, indent=2)
+    
+    with open('evolutions_cards.json', 'w') as f:
+        json.dump(evolutions_cards_data, f, indent=2)
+    
+    print("JSON data files created successfully!")
+    print("- evolutions_set.json")
+    print("- evolutions_cards.json")
 
 
-# Returns a dictionary of values of the matching Pokemon card if the hash distance is within the cutoff range
+
+
+
+# Returns a dictionary with the matching card's set and number if found
 # If no matching card is found, it returns None
 def compareCards(hashes):
     cutoff = 18  # Arbitrarily set cutoff value; was found through testing
-    # Connects to the pokemon card database
-    db = mysql.connector.connect(
-        host="localhost",
-        user=username,
-        passwd=password,
-        database=databasename
-    )
+    
+    # Load JSON data files
+    if not os.path.exists('evolutions_cards.json'):
+        print("Error: JSON data files not found. Please run with isFirst=True to create them.")
+        return None
+    
+    with open('evolutions_cards.json', 'r') as f:
+        evolutions_cards = json.load(f)
+    
+    with open('evolutions_set.json', 'r') as f:
+        evolutions_set = json.load(f)
 
-    mycursor = db.cursor(buffered=True)  # Create cursor with buffered=True so that mycursor.rowcount doesn't return 0
-
-    mycursor.execute("SELECT * FROM EvolutionsCards")  # Gets values from EvolutionsCards (hashes)
-
-    # Create arrays of size=4 that store hash differences for each orientation; every hashing method gets its own array
+    # Create arrays of size=4 that store hash differences for each orientation
     avghashesDists = np.zeros(4)
     whashesDists = np.zeros(4)
     phashesDists = np.zeros(4)
@@ -128,14 +144,27 @@ def compareCards(hashes):
 
     maxHashDists = []  # An array that will store the maximum of the minimum hash difference for each card
 
-    for _ in range(mycursor.rowcount):  # Loop through each row in EvolutionsCards table
-        # Get the values stored in each row
-        # Note: the hashes are stored as Strings in the database because MySQL doesn't support storing hashes
-        cardnum, \
-            avghash1, avghash2, avghash3, avghash4, \
-            whash1, whash2, whash3, whash4,\
-            phash1, phash2, phash3, phash4, \
-            dhash1, dhash2, dhash3, dhash4 = mycursor.fetchone()
+    for card in evolutions_cards:  # Loop through each card
+        # Get the hash values for this card
+        avghash1 = card['avghashes']
+        avghash2 = card['avghashesmir']
+        avghash3 = card['avghashesud']
+        avghash4 = card['avghashesudmir']
+        
+        whash1 = card['whashes']
+        whash2 = card['whashesmir']
+        whash3 = card['whashesud']
+        whash4 = card['whashesudmir']
+        
+        phash1 = card['phashes']
+        phash2 = card['phashesmir']
+        phash3 = card['phashesud']
+        phash4 = card['phashesudmir']
+        
+        dhash1 = card['dhashes']
+        dhash2 = card['dhashesmir']
+        dhash3 = card['dhashesud']
+        dhash4 = card['dhashesudmir']
 
         # Convert each hash from a String to a hash and find the distance from the scanned image
         avghashesDists[0] = hashes[0] - imagehash.hex_to_hash(avghash1)
@@ -159,32 +188,25 @@ def compareCards(hashes):
         dhashesDists[3] = hashes[3] - imagehash.hex_to_hash(dhash4)
 
         # Find the minimum of each hashing method
-        # This should make us look at the correct card orientation
         hashDistances = [min(avghashesDists), min(whashesDists), min(phashesDists), min(dhashesDists)]
-        maxHashDists.append(max(hashDistances))  # Find the max of the mins of each hashing method to reduce error
+        maxHashDists.append(max(hashDistances))
 
     print(min(maxHashDists))
     if min(maxHashDists) < cutoff:  # If the smallest hash distance is less than the cutoff, we have found our card
         minCardNum = maxHashDists.index(min(maxHashDists)) + 1  # Find the card number of the card
 
-        # Get values from minCardNum row of EvolutionsSet table
-        mycursor.execute(f"SELECT * FROM EvolutionsSet WHERE cardnumber={minCardNum}")
-        vals = mycursor.fetchone()
-        _, poke, cardname, rarity, cardtype = vals
+        # Get card data from evolutions_set
+        card_data = next((card for card in evolutions_set if card['cardnumber'] == minCardNum), None)
+        if not card_data:
+            return None
+        
+        set_name = card_data.get('set_name', 'Unknown')
+        card_number_in_set = card_data.get('card_number_in_set', 'Unknown')
 
-        # Get values from poke row of Pokemon table
-        mycursor.execute("SELECT * FROM Pokemon WHERE pokemon=%s", (poke,))
-        vals2 = mycursor.fetchone()
-        dexnumber, _, poketype, height, stage = vals2
-
-        # Return dictionary with traits about cards
-        return {'Card Number': minCardNum,
-                'Pokemon': poke,
-                'Card Name': cardname,
-                'Rarity': rarity,
-                'Card Type': cardtype,
-                'Pokedex Number': dexnumber,
-                'Pokemon Type': poketype,
-                'Pokemon Stage': stage,
-                'Pokemon Height': height}
+        # Return simple dictionary with just set and card number
+        return {
+            'Card Number': minCardNum,
+            'Set Name': set_name,
+            'Card Number In Set': card_number_in_set
+        }
     return None

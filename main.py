@@ -7,7 +7,7 @@ import utils
 def readCard():
     phoneCamFeed = True        # Flag signaling if images are being read live from phone camera or from image file
     pathImage = 'testImages/tiltright.jpg'      # File name of image
-    cam = cv2.VideoCapture(1)   # Use Video source 1 = phone; 0 = computer webcam
+    cam = cv2.VideoCapture(0)   # Use Video source 1 = phone; 0 = computer webcam
 
     # Scaled to the IRL height and width of a Pokemon card (6.6 cm x 8.8 cm)
     widthCard = utils.getWidthCard()
@@ -106,7 +106,10 @@ def readCard():
 
 
 if __name__ == '__main__':
-    isFirst = False  # True if this is your first time running this code; will create a new database
-    if isFirst:
+    # Automatically check if database needs regeneration
+    if cardData.needsDatabaseRegeneration():
+        print("Database needs regeneration (missing files or new cards detected)")
         cardData.createDatabase()
+        print()
+    
     readCard()  # Finds and reads from a saved image or live feed
