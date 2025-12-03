@@ -123,7 +123,7 @@ def createDatabase():
 # Returns a dictionary with the matching card's set and number if found
 # If no matching card is found, it returns None
 def compareCards(hashes):
-    cutoff = 18  # Arbitrarily set cutoff value; was found through testing
+    cutoff = 22  # Arbitrarily set cutoff value; was found through testing
     
     # Load JSON data files
     if not os.path.exists('evolutions_cards.json'):
