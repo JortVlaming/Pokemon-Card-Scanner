@@ -17,7 +17,15 @@ def readCard():
 
         # Check if using phone camera or saved picture
         check, frame = cam.read()
-
+        original_frame = frame.copy()  # Keep original for display
+        
+        # Use YOLO to detect and crop card region
+        cropped_card, bbox = utils.detectCardWithYOLO(frame)
+        
+        # If YOLO detected a card, use the cropped region; otherwise use full frame
+        if cropped_card is not None:
+            frame = cropped_card
+        
         # Make image gray scale
         grayFrame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         # Blur the image to reduce noise
@@ -54,6 +62,7 @@ def readCard():
 
         # Resize all of the images to the same dimensions
         # Note: imgWarpColored is already resized and matchingCard gets resized in utils.getMatchingCard()
+        original_frame = cv2.resize(original_frame, (widthCard, heightCard))
         frame = cv2.resize(frame, (widthCard, heightCard))
         grayFrame = cv2.resize(grayFrame, (widthCard, heightCard))
         blurredFrame = cv2.resize(blurredFrame, (widthCard, heightCard))
@@ -65,7 +74,7 @@ def readCard():
         found, matchingCard = utils.findCard(imgWarpColored.copy())  # Check to see if a matching card was found
 
         # An array of all 8 images
-        imageArr = ([frame, grayFrame, blurredFrame, edgedFrame],
+        imageArr = ([original_frame, grayFrame, blurredFrame, edgedFrame],
                     [contourFrame, bigContour, imgWarpColored, matchingCard])
 
         # Labels for each image

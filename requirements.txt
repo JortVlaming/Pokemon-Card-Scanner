@@ -1,6 +1,7 @@
 # Computer Vision
 opencv-python>=4.5.0
 numpy>=1.19.0
+ultralytics>=8.0.0
 
 # Image Processing and Hashing
 Pillow>=8.0.0

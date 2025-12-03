@@ -5,6 +5,16 @@ import os
 from PIL import Image
 import imagehash
 import cardData
+from ultralytics import YOLO
+
+# Load YOLO model for card detection
+_yolo_model = None
+
+def get_yolo_model():
+    global _yolo_model
+    if _yolo_model is None:
+        _yolo_model = YOLO('cardfinder3.pt')
+    return _yolo_model
 
 
 # Get the width of the cards/images
@@ -15,6 +25,37 @@ def getWidthCard():
 # Get the height of the cards/images
 def getHeightCard():
     return 440
+
+
+# Detect card using YOLO and return cropped region
+def detectCardWithYOLO(frame):
+    """
+    Uses YOLO model to detect card in frame and returns the cropped card region.
+    Returns the cropped image and bounding box coordinates, or None if no card detected.
+    """
+    model = get_yolo_model()
+    results = model(frame, verbose=False)
+    
+    # Check if any detections were made
+    if len(results) > 0 and len(results[0].boxes) > 0:
+        # Get the first (highest confidence) detection
+        box = results[0].boxes[0]
+        x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+        
+        # Add some padding to the crop (optional, adjust as needed)
+        padding = 10
+        h, w = frame.shape[:2]
+        x1 = max(0, x1 - padding)
+        y1 = max(0, y1 - padding)
+        x2 = min(w, x2 + padding)
+        y2 = min(h, y2 + padding)
+        
+        # Crop the card region
+        cropped_card = frame[y1:y2, x1:x2]
+        
+        return cropped_card, (x1, y1, x2, y2)
+    
+    return None, None
 
 
 # Returns the corners & area of the biggest contour
